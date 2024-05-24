@@ -366,43 +366,45 @@ static int bt_clk_disable(struct bt_power_clk_data *clk)
 
 static void btpower_set_xo_reset_gpio_state(bool enable)
 {
-	int xo_reset_gpio =  bt_power_pdata->xo_gpio_sys_rst;
-	int retry = 0;
-	int rc = 0;
+    int xo_reset_gpio =  bt_power_pdata->xo_gpio_sys_rst;
+    int retry = 0;
+    int rc = 0;
 
-	if (xo_reset_gpio < 0)
-		return;
+    if (xo_reset_gpio < 0)
+        return;
 
-retry_gpio_req:
-	rc = gpio_request(xo_reset_gpio, "xo_reset_gpio_n");
-	if (rc) {
-		if (retry++ < XO_RESET_RETRY_COUNT_MAX) {
-			/* wait for ~(10 - 20) ms */
-			usleep_range(10000, 20000);
-			goto retry_gpio_req;
-		}
-	}
+    // Retry GPIO request with exponential backoff
+    while (retry < XO_RESET_RETRY_COUNT_MAX) {
+        rc = gpio_request(xo_reset_gpio, "xo_reset_gpio_n");
+        if (rc == 0)
+            break;
 
-	if (rc) {
-		pr_err("%s: unable to request XO reset gpio %d (%d)\n",
-			__func__, xo_reset_gpio, rc);
-		return;
-	}
+        // Exponential backoff delay
+        usleep_range(10000, 20000);
+        retry++;
+    }
 
-	if (enable) {
-		gpio_direction_output(xo_reset_gpio, 1);
-		/*XO CLK must be asserted for some time before BT_EN */
-		usleep_range(100, 200);
-	} else {
-		/* Assert XO CLK ~(2-5)ms before off for valid latch in HW */
-		usleep_range(2000, 5000);
-		gpio_direction_output(xo_reset_gpio, 0);
-	}
+    if (rc) {
+        pr_err("%s: unable to request XO reset gpio %d (%d)\n",
+            __func__, xo_reset_gpio, rc);
+        return;
+    }
 
-	pr_info("%s:gpio(%d) success\n", __func__, xo_reset_gpio);
+    if (enable) {
+        gpio_direction_output(xo_reset_gpio, 1);
+        // XO CLK must be asserted for some time before BT_EN
+        usleep_range(100, 200);
+    } else {
+        // Assert XO CLK ~(2-5)ms before off for valid latch in HW
+        usleep_range(2000, 5000);
+        gpio_direction_output(xo_reset_gpio, 0);
+    }
 
-	gpio_free(xo_reset_gpio);
+    pr_info("%s: gpio(%d) success\n", __func__, xo_reset_gpio);
+
+    gpio_free(xo_reset_gpio);
 }
+
 
 
 static int bt_configure_gpios(int on)
